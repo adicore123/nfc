@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>קורא NFC</title>
+    <meta name="description" content="אפליקציית קורא NFC">
+    <meta name="theme-color" content="#3498db">
+    
+    <!-- קישור לקובץ manifest -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- איקונים לדפדפן ולמכשיר -->
+    <link rel="icon" type="image/png" href="icon-192x192.png" sizes="192x192">
+    <link rel="apple-touch-icon" href="icon-192x192.png">
+    
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+            direction: rtl;
+            background-color: #f0f4f8;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+
+        #status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+            background-color: #ffffff;
+            min-height: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        #tag-data {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #ffffff;
+            text-align: left;
+            direction: ltr;
+            white-space: pre-wrap;
+            display: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        button {
+            background-color: #3498db;
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 10px 2px;
+            cursor: pointer;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .error {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+
+        .success {
+            color: #2ecc71;
+            font-weight: bold;
+        }
+        
+        #install-container {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            display: none;
+        }
+        
+        .nfc-icon {
+            font-size: 60px;
+            margin: 20px 0;
+            color: #3498db;
+        }
+        
+        .app-container {
+            background-color: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <h1>קורא NFC</h1>
+        <div class="nfc-icon">📱</div>
+        <p>הצמידו תג NFC לגב המכשיר לאחר לחיצה על כפתור הסריקה</p>
+        
+        <div id="install-container">
+            <p>להתקנת האפליקציה על המכשיר שלך:</p>
+            <button id="install-button">התקן אפליקציה</button>
+        </div>
+        
+        <button id="scan-button">התחל סריקה</button>
+        <div id="status">מוכן לסריקה...</div>
+        <div id="tag-data"></div>
+    </div>
+
+    <script>
+        // בדיקה אם Service Worker נתמך
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(registration => {
+                        console.log('Service Worker נרשם בהצלחה:', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('רישום Service Worker נכשל:', error);
+                    });
+            });
+        }
+        
+        // התקנת PWA
+        let deferredPrompt;
+        const installContainer = document.getElementById('install-container');
+        const installButton = document.getElementById('install-button');
+        
+        window.addEventListener('beforeinstallprompt', (e) => {
+            // מניעת הצגה אוטומטית של חלון ההתקנה
+            e.preventDefault();
+            // שמירת האירוע כדי להפעיל אותו מאוחר יותר
+            deferredPrompt = e;
+            // הצגת כפתור ההתקנה שלנו
+            installContainer.style.display = 'block';
+        });
+        
+        installButton.addEventListener('click', () => {
+            // הסתרת כפתור ההתקנה
+            installContainer.style.display = 'none';
+            // הצגת חלון ההתקנה
+            deferredPrompt.prompt();
+            // בדיקה אם המשתמש קיבל את ההתקנה
+            deferredPrompt.userChoice.then((choiceResult) => {
+                if (choiceResult.outcome === 'accepted') {
+                    console.log('המשתמש התקין את ה-PWA');
+                } else {
+                    console.log('המשתמש דחה את ההתקנה');
+                }
+                deferredPrompt = null;
+            });
+        });
+        
+        // בדיקה אם האפליקציה כבר מותקנת
+        window.addEventListener('appinstalled', (evt) => {
+            installContainer.style.display = 'none';
+            console.log('האפליקציה הותקנה בהצלחה');
+        });
+        
+        // פונקציונליות NFC
+        document.addEventListener('DOMContentLoaded', () => {
+            const scanButton = document.getElementById('scan-button');
+            const statusDiv = document.getElementById('status');
+            const tagDataDiv = document.getElementById('tag-data');
+            
+            // בדיקה אם הדפדפן תומך ב-NFC
+            if ('NDEFReader' in window) {
+                scanButton.addEventListener('click', async () => {
+                    try {
+                        statusDiv.textContent = 'מחפש תג NFC...';
+                        statusDiv.className = '';
+                        tagDataDiv.style.display = 'none';
+                        scanButton.disabled = true;
+                        
+                        const ndef = new NDEFReader();
+                        await ndef.scan().catch(error => {
+                            console.error(`Error: ${error.message}`);
+                            if (error.name === 'NotAllowedError') {
+                                statusDiv.textContent = 'המשתמש סירב להרשאת NFC. נא לנסות שוב ולאשר את ההרשאה.';
+                            } else if (error.name === 'NotSupportedError') {
+                                statusDiv.textContent = 'NFC לא נתמך במכשיר זה או מכובה בהגדרות.';
+                            } else {
+                                statusDiv.textContent = `שגיאה: ${error.message}`;
+                            }
+                            statusDiv.className = 'error';
+                            scanButton.disabled = false;
+                            return Promise.reject(error);
+                        });
+                        
+                        statusDiv.textContent = 'סריקה פעילה, נא להצמיד תג NFC למכשיר';
+                        
+                        ndef.addEventListener("reading", ({ message, serialNumber }) => {
+                            console.log(`> Serial Number: ${serialNumber}`);
+                            console.log(`> Records: (${message.records.length})`);
+                            
+                            let displayText = `מספר סידורי: ${serialNumber}\n\nרשומות (${message.records.length}):\n`;
+                            
+                            message.records.forEach((record, index) => {
+                                displayText += `\nרשומה ${index + 1}:\n`;
+                                displayText += `סוג: ${record.recordType}\n`;
+                                displayText += `סוג MIME: ${record.mediaType || 'לא זמין'}\n`;
+                                
+                                if (record.recordType === "text") {
+                                    const textDecoder = new TextDecoder(record.encoding);
+                                    displayText += `טקסט: ${textDecoder.decode(record.data)}\n`;
+                                } else {
+                                    // מציג נתונים גולמיים כ-hex
+                                    const hexData = Array.from(new Uint8Array(record.data))
+                                        .map(b => b.toString(16).padStart(2, '0'))
+                                        .join(' ');
+                                    displayText += `נתונים (HEX): ${hexData}\n`;
+                                }
+                            });
+                            
+                            statusDiv.textContent = 'תג NFC נקרא בהצלחה!';
+                            statusDiv.className = 'success';
+                            tagDataDiv.textContent = displayText;
+                            tagDataDiv.style.display = 'block';
+                            scanButton.disabled = false;
+                        });
+                        
+                        ndef.addEventListener("readingerror", () => {
+                            statusDiv.textContent = 'שגיאה בקריאת תג NFC';
+                            statusDiv.className = 'error';
+                            scanButton.disabled = false;
+                        });
+                        
+                    } catch (error) {
+                        statusDiv.textContent = `שגיאה כללית: ${error.message}`;
+                        statusDiv.className = 'error';
+                        console.error(error);
+                        scanButton.disabled = false;
+                    }
+                });
+            } else {
+                statusDiv.textContent = 'הדפדפן שלך לא תומך ב-Web NFC API';
+                statusDiv.className = 'error';
+                scanButton.disabled = true;
+            }
+        });
+    </script>
+</body>
+</html>
